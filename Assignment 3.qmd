@@ -1,0 +1,278 @@
+---
+title: "Assignment 3"
+author: "Kiarra Pearson"
+format: html
+editor: visual
+---
+
+```{r}
+# create a hook to crop maps as recommended by pmassicotte
+# must have `magick` and its dependencies installed
+
+knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
+```
+
+**Overview:**
+
+*For this assignment, we are going to be evaluating Michael Ross's influential book [The Oil Curse](https://www-jstor-org.proxygw.wrlc.org/stable/j.ctt7s3wz.10).  According to Michael Ross, oil undermines democracy in a number of ways. We will map some data in order to evaluate different aspects of his argument.* 
+
+## Step 1: Create a data frame with country shapes (25 pts)
+
+*Use `rnaturalearth` to extract and store country shapes as simple features in a data frame. Filter out Antarctica and glimpse() the data to make sure everything looks right.* 
+
+```{r}
+library(rnaturalearth)
+library(dplyr)
+
+world_map_df <- ne_countries(scale = "medium", returnclass = "sf") |>
+    filter(name != "Antarctica") # remove Antarctica
+
+#world_map_df |>
+#glimpse()
+
+# view contents of geometry column
+world_map_df |>
+  select(geometry) 
+```
+
+
+## Step 2: Visualize democracy (25 pts)
+
+*a. Download one of the democracy (e.g. electoral democracy, liberal democracy, participatory democracy, deliberative democracy or egalitarian democracy) from V-Dem using the `vdemdata` package. Then use the vdemdata package to download this indicator and add iso3c codes to it with the `countrycode` package. See module 1.2 to refresh your memory on how to do this. (Note: you don't have to add region names for this exercise.) `glimpse()` the data to make sure everything is there.*
+
+```{r}
+# Load packages
+library(vdemdata)
+library(countrycode)
+
+# Download the data
+democracy <- vdem |> 
+  filter(year >= 2019)  |> 
+  select(                  
+    country = country_name,     
+    vdem_ctry_id = country_id,  
+    year, 
+    lib = v2x_libdem, 
+    gdp_pc = e_gdppc, 
+    region = e_regionpol_6C
+    ) |>
+  mutate(
+    region = case_match(region, 
+                     1 ~ "Eastern Europe", 
+                     2 ~ "Latin America",  
+                     3 ~ "Middle East",   
+                     4 ~ "Africa", 
+                     5 ~ "The West", 
+                     6 ~ "Asia")
+                    
+  )
+
+# View the data
+glimpse(democracy)
+```
+
+```{r}
+# Create new iso3c variable
+democracy <- democracy |>    
+  mutate(iso3c = countrycode(sourcevar = vdem_ctry_id, # what we are converting
+        origin = "vdem",         # we are converting from vdem
+        destination = "wb"))  |> # and converting to the WB iso3c code 
+  relocate(iso3c, .after = vdem_ctry_id) # move iso3c 
+
+# View the data
+glimpse(democracy)
+```
+
+
+*b. Using iso_a3_eh codes from `rnaturalearth` and the iso3c codes you just added to the V-Dem data, join the V-Dem data to the country shapes. `glimpse()` the data to make sure everything look right.*
+
+```{r}
+library(wbstats)
+
+oil_rents_df <- wb_data(c(oil_rents_gdp = "NY.GDP.PETR.RT.ZS"), mrnev = 7) 
+
+rents_map_df <- left_join(world_map_df, oil_rents_df, join_by(iso_a3 == iso3c))
+
+rents_map_df |>
+  select(last_col(5):last_col()) |> #select last 5 columns of df
+  glimpse() 
+```
+
+
+*c. Use `ggplot()` and `geom_sf()` to map the data. Use `theme_map()` from `ggthemes` and give it a `viridis` color scheme. Give the map appropriate labels.*
+
+```{r}
+ggplot(data = rents_map_df) +
+  geom_sf(aes(fill = oil_rents_gdp)) + # shade based on oil rents
+  labs(
+    title = "Oil rents (% of GDP)",
+    subtitle = "(Most recent available data)", # add subtitle
+    fill = "Percent", 
+    caption = "Source: World Bank Development Indicators"
+    ) +
+  theme_map() +
+  theme(
+    legend.position = "right", 
+    #legend.title = element_text(size = 8),
+    #legend.text = element_text(size = 6)
+    plot.title = element_text(face = "bold"), # move legend
+    ) +
+  scale_fill_viridis_c( # chg from discrete (_d) to continuous (_c)
+      option = "magma", #  chg to magma theme
+      labels = scales::label_percent(scale = 1) # add % label for legend
+      ) 
+```
+
+*d. Briefly, do you see preliminary evidence of a relationship between democracy, as displayed in this map, and the map of oil rents that we built together in module 3.1?*
+
+```{r}
+Yes
+```
+
+
+## Step 3: Use a map app to explore the relevance of other indicators (25 pts)
+
+*The central argument in Michael Ross's book is that oil rents undermine democracy because oil provides a non-tax source of revenue to governments. If people don't have to worry about taxes, then they don't have to be concerned about what their leaders are doing. He calls this the "fiscal theory of democracy." Let's use the map app we built in module 3.1 for exploring World Bank data to evaluate this claim.*
+
+*a. In your assignment folder, create a subfolder called 'function' and use it to store your map function helper script like we did in module 3.1.*
+
+*b. Now add the `source()` code chunk that will enable you to call the map function in your Quarto document.*
+
+*c. Use your function to map income taxes as a percent of government revenue (GC.TAX.GSRV.RV.ZS). Do you see evidence of a relationship between this variable and oil rents?*
+
+```{r}
+library(wbstats)
+
+oil_rents_df <- wb_data(c(oil_rents_gdp = "GC.TAX.GSRV.RV.ZS"), mrnev = 1) 
+
+rents_map_df <- left_join(world_map_df, oil_rents_df, join_by(iso_a3 == iso3c))
+
+rents_map_df |>
+  select(last_col(5):last_col()) |> #select last 5 columns of df
+  glimpse() 
+```
+
+
+*d. Use the `wb_search()` function to identify at least one other variable related to taxation that would be relevant for evaluating Ross's theory. Use your function to map that variable. Then describe the relationship with oil wealth (if any) and how the map is relevant to Ross's theory.*
+
+
+## Step 4: Make a leaflet map of conflict to explore the relvance of oil (25 pts)
+
+```{r}
+library(leaflet)
+library(readr)
+library(dplyr)
+
+
+
+*In Chapter 5 of the Oil Curse, Michael Ross argues that oil wealth is destabilizing for developing countries due to the fact that rebels and the government fight over oil. Your task for this question is to explore the relationship between conflict and oil in a leaflet map. 
+
+We will harness OpenAI's [ChatGPT](https://openai.com/blog/chatgpt) in our research for this question. Note that because AI has a tendency to "halucinate", you should always use other sources like Google to verify the information that ChatGPT provides.*
+
+*a. Select a country case to work with. This should be a oil-rich country that has recently experienced high levels of internal conflict. Examples include Iraq, Syria, Yemen and Nigeria. Use your AI to identify a country and a period of time to analyze. Say a few words about your country case and the time period you will be looking at.*   
+
+## I will be working with Iraq has significant oil reserves and is among the top oil-producing countries globally. The majority of its oil fields are located in the southern part of the country. I will be focusing oon 2021.
+
+*b. Now, following the step laid out in module 3.2, filter a few months of conflict data from the UCDP GED dataset for your selected country and convert the coordinates simple features using the `st_as_sf()` function from the `sf` package.*
+
+```{r}
+library(readr)
+library(dplyr)
+
+ged_data <- read_csv("GEDEvent_v23_1.csv")
+
+glimpse(ged_data)
+```
+
+```{r}
+library(states)
+
+sfind("Iraq")
+```
+
+
+```{r}
+ged_Iraq <- ged_data |> 
+  filter(
+    country_id == 645, #gw country code
+    year == 2021,
+    date_start < "2021-08-26",
+    where_prec < 3,
+    event_clarity == 1,
+      ) |> 
+  mutate(deaths = deaths_a + deaths_b + deaths_civilians + deaths_unknown) |>
+  select(event_id = id,
+         country_id,
+         date = date_start,
+         gov_deaths = deaths_a, 
+         rebel_deaths = deaths_b, 
+         civilian_deaths = deaths_civilians, 
+         deaths, 
+         place = where_coordinates,
+         latitude, 
+         longitude) |>
+  sf::st_as_sf(coords = c("longitude", "latitude")) 
+
+glimpse(ged_Iraq)
+```
+
+
+*c. Next, produce a leaflet map that displays markers representing conflict events. Have the markers display the name of the location where the conflict event occurred when the user hovers over them. Have the popup windows display the number of deaths and the date of the event when the user clicks on them. Use "OpenTopoMap" as your basemap.*
+
+```{r}
+library(leaflet)
+
+leaflet(data = ged_Iraq) |> # map points in ged_yemen data frame
+  addTiles() |> # add default tile
+  setView(lng = 44.28877, lat = 34.96969, zoom = 6) |> # Sana'a coordinates
+  addMarkers(lng = 44.01062, lat = 36.19257, label = "First conflict event") 
+    popup = ~as.character(deaths) # when user clicks, show deaths
+    label = ~place # when user hovers, show town
+    
+# save icon
+icon <- awesomeIcons(
+  icon = "ios-close",
+  iconColor = "black",
+  markerColor = "pink", 
+  library = "ion" 
+)
+
+# Build map
+leaflet(data = ged_Iraq) |>   
+  addTiles() |> 
+  setView(lng = 44.28877, lat = 34.96969, zoom = 6) |> # Sana'a coordinates
+  addAwesomeMarkers(
+    icon = icon, 
+    popup = ~as.character(deaths), 
+    label = ~place
+    )
+    
+```
+
+
+*d. Now let's do some research into the location of oil fields. Ask your AI to give you a list of the ten biggest oil fields and in your country and their geographic coordinates. Now ask your AI how you can export those coordinates to a .csv file. Make sure that your columns are appropriately labeled (e.g. snake case) and save your file as oil_fields.csv in your assignment folder. Then read the data into R using `readr` and store them in an object called `oil_fields`.
+
+```{r}
+oil_fields <- data.frame(
+  OilField = c("Rumaila Field", "West Qurna Field", "Majnoon Field", "Kirkuk Field", "Zubair Field", "Halfaya Field", "East Baghdad Field"),
+  Latitude = c(31.536, 30.266, 31.640, 35.511, 30.086, 31.257, 33.345),
+  Longitude = c(47.237, 47.351, 47.574, 44.391, 47.877, 47.610, 44.460)
+)
+
+write.csv(oil_fields, "oil_fields_iraq.csv", row.names = FALSE)
+
+```
+
+
+*e. Now map the oil fields using `leaflet()`, giving each marker a label that displays the name of the oil field. Do you notice that conflict events occur close to oil fields in your chosen country?*
+
+```{r}
+leaflet(data = ged_Iraq) |>  
+  addTiles() |> 
+  setView(lng = 47.237, lat = 31.536, zoom = 6) |> 
+  addAwesomeMarkers(
+    icon = icon, 
+    popup = ~as.character(deaths), 
+    label = ~place
+    )
+```
